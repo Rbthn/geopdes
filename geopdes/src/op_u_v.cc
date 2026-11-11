@@ -58,11 +58,12 @@ OUTPUT: \n\
   octave_idx_type nsh_u = spu.nsh_max ();
   octave_idx_type nsh_v = spv.nsh_max ();
 
-  double jacdet_weights[nqn];
-  double shpv[nsh_v][nqn][ncomp];
-  double shpu[nsh_u][nqn][ncomp];
-  octave_idx_type conn_v[nsh_v];
-  octave_idx_type conn_u[nsh_u];
+  // Heap-allocated work buffers, allocated once for the largest element
+  std::vector<double> jacdet_weights (nqn);
+  std::vector<double> shpv (nsh_max_spv * nqn * ncomp);   // [idof][inode][icmp]
+  std::vector<double> shpu (nsh_max_spu * nqn * ncomp);   // [jdof][inode][icmp]
+  std::vector<octave_idx_type> conn_v (nsh_max_spv);
+  std::vector<octave_idx_type> conn_u (nsh_max_spu);
 
   dim_vector dims (nel * nsh_max_spv * nsh_max_spu, 1);
   Array <octave_idx_type> I (dims, 0);
@@ -87,11 +88,11 @@ OUTPUT: \n\
               
 
         // Cache element data to speed-up memory access
-        spv.cache_element_shape_functions (iel, (double*)shpv);
-        spu.cache_element_shape_functions (iel, (double*)shpu);
+        spv.cache_element_shape_functions (iel, shpv.data());
+        spu.cache_element_shape_functions (iel, shpu.data());
 
-        spu.cache_element_connectivity (iel, (octave_idx_type*)conn_u);
-        spv.cache_element_connectivity (iel, (octave_idx_type*)conn_v);
+        spu.cache_element_connectivity (iel, conn_u.data());
+        spv.cache_element_connectivity (iel, conn_v.data());
 
         for (idof = 0; idof < spv.nsh (iel); idof++) 
           for (jdof = 0; jdof < spu.nsh (iel); jdof++) 
@@ -106,8 +107,8 @@ OUTPUT: \n\
                   {
                     double s = 0.0;
                     for (icmp = 0; icmp < ncomp; icmp++)
-                      s += shpv[idof][inode][icmp] * 
-                        shpu[jdof][inode][icmp];
+                      s += shpv[(idof * nqn + inode) * ncomp + icmp] *
+                        shpu[(jdof * nqn + inode) * ncomp + icmp];
                           
                     Vptr[counter] += s * jacdet_weights[inode];  
                   }// end for inode, if weight >0  

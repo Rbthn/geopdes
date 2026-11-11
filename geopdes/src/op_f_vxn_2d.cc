@@ -45,42 +45,44 @@ OUTPUT:\n\
   geopdes_space       sp  (args(0).scalar_map_value (), msh);
   NDArray             coeff = args(2).array_value ();
 
-  const octave_idx_type nel = msh.nel (), nqn = msh.nqn ();
+  const octave_idx_type nel = msh.nel (), nqn = msh.nqn (), nsh_max = sp.nsh_max ();
 
   ColumnVector mat (sp.ndof (), 0.0);
 
   octave_idx_type iel, inode, idof;
   {
+    // Heap-allocated work buffers, allocated once for the largest element
+    std::vector<double> jacdet_weights (nqn);
+    std::vector<double> shp_x_n (nsh_max * nqn);
+    std::vector<octave_idx_type> conn (nsh_max);
+
     double local_contribution;
     for (iel=0; iel < nel; iel++) 
       if (msh.area (iel) > 0)
         {
           const octave_idx_type nsh = sp.nsh (iel);
-          double jacdet_weights[nqn];
 
           for (inode = 0; inode < nqn; inode++)
             jacdet_weights[inode] = msh.jacdet (inode, iel) *
               msh.weights (inode, iel) * coeff (inode, iel);
             
-          double shp_x_n[nsh][nqn];
-          octave_idx_type conn[nsh];
 
           for (idof = 0; idof < nsh; idof++) 
             for (inode = 0; inode < nqn; inode++)
-              shp_x_n[idof][inode] = 
+              shp_x_n[idof * nqn + inode] =
                 sp.shape_functions (0, inode, idof, iel)*
                 msh.normal (1, inode, iel) -
                 sp.shape_functions (1, inode, idof, iel)*
                 msh.normal (0, inode, iel);
 
-          sp.cache_element_connectivity (iel, (octave_idx_type*)conn);
+          sp.cache_element_connectivity (iel, conn.data());
 
           for (idof = 0; idof < nsh; idof++) 
             for (inode = 0; inode < nqn; inode++)
               if (msh.weights (inode, iel) > 0.0)
                 {
                   local_contribution = jacdet_weights[inode] * 
-                    shp_x_n[idof][inode];
+                    shp_x_n[idof * nqn + inode];
                   mat(conn[idof]-1) += local_contribution;
                 }  // end for idof, for inode, if  
         } 

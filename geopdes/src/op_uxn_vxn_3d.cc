@@ -52,6 +52,13 @@ OUTPUT:\n\
   const octave_idx_type nel = msh.nel (), ncomp = spu.ncomp (), nqn = msh.nqn (), 
     ndof_spu = spu.ndof (), nsh_max_spu = spu.nsh_max (), ndof_spv = spv.ndof (), nsh_max_spv = spv.nsh_max ();
 
+  // Heap-allocated work buffers, allocated once for the largest element
+  std::vector<double> jacdet_weights (nqn);
+  std::vector<double> shpv_x_n (nsh_max_spv * nqn * ncomp);
+  std::vector<double> shpu_x_n (nsh_max_spu * nqn * ncomp);
+  std::vector<octave_idx_type> conn_v (nsh_max_spv);
+  std::vector<octave_idx_type> conn_u (nsh_max_spu);
+
   dim_vector dims (nel * nsh_max_spv * nsh_max_spu, 1);
   Array <octave_idx_type> I (dims, 0);
   octave_idx_type* Iptr = I.fortran_vec ();
@@ -69,7 +76,6 @@ OUTPUT:\n\
       {
         const octave_idx_type nsh_u = spu.nsh (iel);
         const octave_idx_type nsh_v = spv.nsh (iel);
-        double jacdet_weights[nqn];
 
         for (inode = 0; inode < nqn; inode++)
           {
@@ -77,30 +83,26 @@ OUTPUT:\n\
               msh.weights (inode, iel) * coeff (inode, iel);
           }
 
-        double shpv_x_n[nsh_v][nqn][ncomp];
-        double shpu_x_n[nsh_u][nqn][ncomp];
-        octave_idx_type conn_v[nsh_v];
-        octave_idx_type conn_u[nsh_u];
 
         // Cache element data to speed-up memory access
-        spu.cache_element_connectivity (iel, (octave_idx_type*)conn_u);
-        spv.cache_element_connectivity (iel, (octave_idx_type*)conn_v);
+        spu.cache_element_connectivity (iel, conn_u.data());
+        spv.cache_element_connectivity (iel, conn_v.data());
 
         for (idof = 0; idof < nsh_v; idof++) 
           for (inode = 0; inode < nqn; inode++)
             for (icmp = 0; icmp < ncomp; icmp++)
               {
-                shpv_x_n[idof][inode][0] =
+                shpv_x_n[(idof * nqn + inode) * ncomp + 0] =
                   spv.shape_functions (1, inode, idof, iel) * 
                   msh.normal (2, inode, iel) -
                   spv.shape_functions (2, inode, idof, iel) * 
                   msh.normal (1, inode, iel);
-                shpv_x_n[idof][inode][1] =
+                shpv_x_n[(idof * nqn + inode) * ncomp + 1]  =
                   spv.shape_functions (2, inode, idof, iel) * 
                   msh.normal (0, inode, iel) -
                   spv.shape_functions (0, inode, idof, iel) * 
                   msh.normal (2, inode, iel);
-                shpv_x_n[idof][inode][2] =
+                shpv_x_n[(idof * nqn + inode) * ncomp + 2]  =
                   spv.shape_functions (0, inode, idof, iel) * 
                   msh.normal (1, inode, iel) -
                   spv.shape_functions (1, inode, idof, iel) * 
@@ -111,17 +113,17 @@ OUTPUT:\n\
           for (inode = 0; inode < nqn; inode++)
             for (icmp = 0; icmp < ncomp; icmp++)
               {
-                shpu_x_n[jdof][inode][0] =
+                shpu_x_n[(jdof * nqn + inode) * ncomp + 0] =
                   spu.shape_functions (1, inode, jdof, iel) * 
                   msh.normal (2, inode, iel) -
                   spu.shape_functions (2, inode, jdof, iel) * 
                   msh.normal (1, inode, iel);
-                shpu_x_n[jdof][inode][1] =
+                shpu_x_n[(jdof * nqn + inode) * ncomp + 1] =
                   spu.shape_functions (2, inode, jdof, iel) * 
                   msh.normal (0, inode, iel) -
                   spu.shape_functions (0, inode, jdof, iel) * 
                   msh.normal (2, inode, iel);
-                shpu_x_n[jdof][inode][2] =
+                shpu_x_n[(jdof * nqn + inode) * ncomp + 2] =
                   spu.shape_functions (0, inode, jdof, iel) * 
                   msh.normal (1, inode, iel) -
                   spu.shape_functions (1, inode, jdof, iel) * 
@@ -143,8 +145,8 @@ OUTPUT:\n\
                       {
                         double s = 0.0;
                         for (icmp = 0; icmp < ncomp; icmp++)
-                          s += shpv_x_n[idof][inode][icmp] * 
-                            shpu_x_n[jdof][inode][icmp];
+                          s += shpv_x_n[(idof * nqn + inode) * ncomp + icmp] *
+                            shpu_x_n[(jdof * nqn + inode) * ncomp + icmp];
 
                         Vptr[counter] += s * jacdet_weights[inode];
                       }  

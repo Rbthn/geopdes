@@ -57,13 +57,12 @@ OUTPUT: \n\
   octave_idx_type nsh_u = spu.nsh_max (); 
   octave_idx_type nsh_v = spv.nsh_max (); 
 
-  double jacdet_weights[nqn];
-      
-  double shgv[nsh_v][nqn][ndir][ncomp];
-  double shgu[nsh_u][nqn][ndir][ncomp];
-      
-  octave_idx_type conn_v[nsh_v];
-  octave_idx_type conn_u[nsh_u];
+  // Heap-allocated work buffers, allocated once for the largest element
+  std::vector<double> jacdet_weights (nqn);
+  std::vector<double> shgv (nsh_max_spv * nqn * ndir * ncomp);   // [idof][inode][idir[icmp]
+  std::vector<double> shgu (nsh_max_spu * nqn * ndir * ncomp);   // [jdof][inode][idir[icmp]
+  std::vector<octave_idx_type> conn_v (nsh_max_spv);
+  std::vector<octave_idx_type> conn_u (nsh_max_spu);
       
   dim_vector dims (nel * nsh_max_spv * nsh_max_spu, 1);
   Array <octave_idx_type> I (dims, 0);
@@ -86,11 +85,11 @@ OUTPUT: \n\
             msh.weights (inode, iel) * coeff (inode, iel);
               
         // Cache element data to speed-up memory access
-        spv.cache_element_shape_function_gradients (iel, (double*)shgv);
-        spu.cache_element_shape_function_gradients (iel, (double*)shgu);
+        spv.cache_element_shape_function_gradients (iel, shgv.data());
+        spu.cache_element_shape_function_gradients (iel, shgu.data());
 
-        spv.cache_element_connectivity (iel, (octave_idx_type*)conn_v);
-        spu.cache_element_connectivity (iel, (octave_idx_type*)conn_u);
+        spv.cache_element_connectivity (iel, conn_v.data());
+        spu.cache_element_connectivity (iel, conn_u.data());
 
         for (idof = 0; idof < spv.nsh (iel); idof++) 
           for (jdof = 0; jdof < spu.nsh (iel); jdof++) 
@@ -106,8 +105,8 @@ OUTPUT: \n\
                     double s = 0.0;
                     for (icmp = 0; icmp < ncomp; icmp++)
                       for (idir = 0; idir < ndir; idir++)
-                        s += shgv[idof][inode][idir][icmp] * 
-                          shgu[jdof][inode][idir][icmp];
+                        s += shgv[((idof * nqn + inode) * ndir + idir) * ncomp + icmp] *
+                          shgu[((jdof * nqn + inode) * ndir + idir) * ncomp + icmp];
                         
                     Vptr[counter] += s * jacdet_weights[inode];
                   }  // end for inode, if weight > 0

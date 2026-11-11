@@ -48,6 +48,13 @@ OUTPUT: \n\
 
   const octave_idx_type nel = msh.nel (), nqn = msh.nqn (), ndof_spu = spu.ndof (), nsh_max_spu = spu.nsh_max (), ndof_spv = spv.ndof (), nsh_max_spv = spv.nsh_max ();
 
+  // Heap-allocated work buffers, allocated once for the largest element
+  std::vector<double> jacdet_weights (nqn);
+  std::vector<double> shcv (nsh_max_spv * nqn * 3);   // [idof][inode][icmp]
+  std::vector<double> shcu (nsh_max_spu * nqn * 3);   // [jdof][inode][icmp]
+  std::vector<octave_idx_type> conn_v (nsh_max_spv);
+  std::vector<octave_idx_type> conn_u (nsh_max_spu);
+
   dim_vector dims (nel * nsh_max_spv * nsh_max_spu, 1);
   Array <octave_idx_type> I (dims, 0);
   octave_idx_type* Iptr = I.fortran_vec ();
@@ -60,6 +67,7 @@ OUTPUT: \n\
 
   SparseMatrix mat;
 
+
   octave_idx_type counter = 0, iel, inode, idof, jdof, icmp;
 
   for (iel=0; iel < nel; iel++) 
@@ -67,29 +75,23 @@ OUTPUT: \n\
       {
         const octave_idx_type nsh_u = spu.nsh (iel);
         const octave_idx_type nsh_v = spv.nsh (iel);
-        double jacdet_weights[nqn];
 
         for (inode = 0; inode < nqn; inode++)
           jacdet_weights[inode] = msh.jacdet (inode, iel) *
             msh.weights (inode, iel) * coeff (inode, iel);
 
-        double shcv[nsh_v][nqn][3];
-        double shcu[nsh_u][nqn][3];
-        octave_idx_type conn_v[nsh_max_spv];
-        octave_idx_type conn_u[nsh_max_spu];
-
         for (idof = 0; idof < nsh_v; idof++) 
           for (inode = 0; inode < nqn; inode++)
             for (icmp = 0; icmp < 3; icmp++)
-              shcv[idof][inode][icmp] = spv.shape_function_curls (icmp, inode, idof, iel);
+              shcv[(idof * nqn + inode) * 3 + icmp] = spv.shape_function_curls (icmp, inode, idof, iel);
             
         for (jdof = 0; jdof < nsh_u; jdof++) 
           for (inode = 0; inode < nqn; inode++)
             for (icmp = 0; icmp < 3; icmp++)
-              shcu[jdof][inode][icmp] = spu.shape_function_curls (icmp, inode, jdof, iel);
+              shcu[(jdof * nqn + inode) * 3 + icmp] = spu.shape_function_curls (icmp, inode, jdof, iel);
             
-        spu.cache_element_connectivity (iel, (octave_idx_type*)conn_u);
-        spv.cache_element_connectivity (iel, (octave_idx_type*)conn_v);
+        spu.cache_element_connectivity (iel, conn_u.data());
+        spv.cache_element_connectivity (iel, conn_v.data());
 
         for (idof = 0; idof < nsh_v; idof++) 
           for (jdof = 0; jdof < nsh_u; jdof++) 
@@ -104,8 +106,8 @@ OUTPUT: \n\
                   {			  
                     double s = 0.0;
                     for (icmp = 0; icmp < 3; icmp++)
-                      s += shcv[idof][inode][icmp] * 
-                        shcu[jdof][inode][icmp];
+                      s += shcv[(idof * nqn + inode) * 3 + icmp] *
+                        shcu[(jdof * nqn + inode) * 3 + icmp];
                         
                     Vptr[counter] += jacdet_weights[inode] * s;
                   }  // end for inode, if 

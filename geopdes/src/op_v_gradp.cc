@@ -51,6 +51,13 @@ OP_V_GRADP: assemble the matrix B = [b(i,j)], b(i,j) = (epsilon grad p_i, v_j). 
   const octave_idx_type nel = msh.nel (), nqn = msh.nqn (), ncomp = spv.ncomp (), ndof_spp = spp.ndof (), 
     nsh_max_spp = spp.nsh_max (), ndof_spv = spv.ndof (), nsh_max_spv = spv.nsh_max ();
 
+  // Heap-allocated work buffers, allocated once for the largest element
+  std::vector<double> jacdet_weights (nqn);
+  std::vector<double> shpv (nsh_max_spv * nqn * ncomp);   // [jdof][inode][icmp]
+  std::vector<double> shgp (nsh_max_spp * nqn * ncomp);   // [idof][inode][icmp]
+  std::vector<octave_idx_type> conn_v (nsh_max_spv);
+  std::vector<octave_idx_type> conn_p (nsh_max_spp);
+
   dim_vector dims (nel * nsh_max_spv * nsh_max_spp, 1);
   Array <octave_idx_type> I (dims, 0);
   octave_idx_type* Iptr = I.fortran_vec ();
@@ -68,7 +75,6 @@ OP_V_GRADP: assemble the matrix B = [b(i,j)], b(i,j) = (epsilon grad p_i, v_j). 
       {
         const octave_idx_type nsh_p = spp.nsh (iel);
         const octave_idx_type nsh_v = spv.nsh (iel);
-        double jacdet_weights[nqn];
 
         for ( inode = 0; inode < nqn; inode++)
           {
@@ -76,24 +82,20 @@ OP_V_GRADP: assemble the matrix B = [b(i,j)], b(i,j) = (epsilon grad p_i, v_j). 
               msh.weights (inode, iel) * coeff (inode, iel);
           }
 
-        double shpv[nsh_v][nqn][ncomp];
-        double shgp[nsh_p][nqn][ncomp];
-        octave_idx_type conn_v[nsh_max_spv];
-        octave_idx_type conn_p[nsh_max_spp];
 
         for ( idof = 0; idof < nsh_p; idof++) 
           for ( inode = 0; inode < nqn; inode++)
             for ( icmp = 0; icmp < ncomp; icmp++)
-              shgp[idof][inode][icmp] = spp.shape_function_gradients (0, icmp, inode, idof, iel);
+              shgp[(idof * nqn + inode) * ncomp + icmp] = spp.shape_function_gradients (0, icmp, inode, idof, iel);
 
         for ( jdof = 0; jdof < nsh_v; jdof++) 
           for ( inode = 0; inode < nqn; inode++)
             for ( icmp = 0; icmp < ncomp; icmp++)
-              shpv[jdof][inode][icmp] = spv.shape_functions (icmp, inode, jdof, iel);
+              shpv[(jdof * nqn + inode) * ncomp + icmp] = spv.shape_functions (icmp, inode, jdof, iel);
 
         // Cache element data to speed-up memory access
-        spp.cache_element_connectivity (iel, (octave_idx_type*)conn_p);
-        spv.cache_element_connectivity (iel, (octave_idx_type*)conn_v);
+        spp.cache_element_connectivity (iel, conn_p.data());
+        spv.cache_element_connectivity (iel, conn_v.data());
 
 
         for ( idof = 0; idof < nsh_p; idof++) 
@@ -111,7 +113,7 @@ OP_V_GRADP: assemble the matrix B = [b(i,j)], b(i,j) = (epsilon grad p_i, v_j). 
                       {			
                         double s = 0.0;
                         for ( icmp = 0; icmp < ncomp; icmp++)
-                          s += shgp[idof][inode][icmp] * shpv[jdof][inode][icmp];
+                          s += shgp[(idof * nqn + inode) * ncomp + icmp] * shpv[(jdof * nqn + inode) * ncomp + icmp];
                         Vptr[counter] += jacdet_weights[inode] * s;
                       }  
                   } // end for inode		  

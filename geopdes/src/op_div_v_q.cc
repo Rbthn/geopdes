@@ -48,12 +48,12 @@ DEFUN_DLD(op_div_v_q, args, nargout,"OP_DIV_V_Q: assemble the matrix B = [b(i,j)
     nsh_max_spq = spq.nsh_max (), ndof_spv = spv.ndof (), nsh_max_spv = spv.nsh_max (),
     ncomp_spq = spq.ncomp ();
       
-  double shdivv[nsh_max_spv][nqn];
-  double shpq[nsh_max_spq][nqn][ncomp_spq];
-  double jacdet_weights[nqn];
-                              
-  octave_idx_type conn_v[nsh_max_spv];
-  octave_idx_type conn_q[nsh_max_spq];
+  // Heap-allocated work buffers, allocated once for the largest element
+  std::vector<double> jacdet_weights (nqn);
+  std::vector<double> shdivv (nsh_max_spv * nqn);           // [jdof][inode]
+  std::vector<double> shpq (nsh_max_spq * nqn * ncomp_spq); // [idof][inode][icmp]
+  std::vector<octave_idx_type> conn_v (nsh_max_spv);
+  std::vector<octave_idx_type> conn_q (nsh_max_spq);
 
   dim_vector dims (nel * nsh_max_spv * nsh_max_spq, 1);
 
@@ -76,11 +76,11 @@ DEFUN_DLD(op_div_v_q, args, nargout,"OP_DIV_V_Q: assemble the matrix B = [b(i,j)
           jacdet_weights[inode] = msh.jacdet (inode, iel) * msh.weights (inode, iel);
 
         // Cache element data to speed-up memory access
-        spq.cache_element_shape_functions (iel, (double*)shpq);
-        spv.cache_element_shape_function_divs (iel, (double*)shdivv);
+        spq.cache_element_shape_functions (iel, shpq.data());
+        spv.cache_element_shape_function_divs (iel, shdivv.data());
 
-        spq.cache_element_connectivity (iel, (octave_idx_type*)conn_q);
-        spv.cache_element_connectivity (iel, (octave_idx_type*)conn_v);
+        spq.cache_element_connectivity (iel, conn_q.data());
+        spv.cache_element_connectivity (iel, conn_v.data());
 
         for ( idof = 0; idof <  spq.nsh (iel); idof++) 
           for ( jdof = 0; jdof < spv.nsh (iel); jdof++) 
@@ -93,7 +93,7 @@ DEFUN_DLD(op_div_v_q, args, nargout,"OP_DIV_V_Q: assemble the matrix B = [b(i,j)
 
               for (inode = 0; inode < nqn; inode++)
                 if (msh.weights (inode, iel) > 0.0)
-                  Vptr[counter] += jacdet_weights[inode] * shdivv[jdof][inode] * shpq[idof][inode][0];
+                  Vptr[counter] += jacdet_weights[inode] * shdivv[jdof * nqn + inode] * shpq[(idof * nqn + inode) * ncomp_spq + 0];
             }  // end for idof, for jdof
       } 
     else 

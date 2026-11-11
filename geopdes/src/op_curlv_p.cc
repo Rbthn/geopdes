@@ -48,6 +48,13 @@ OUTPUT:\n\
   const octave_idx_type nel = msh.nel (), nqn = msh.nqn (), 
     ndof_spp = spp.ndof (), nsh_max_spp = spp.nsh_max (), ndof_spv = spv.ndof (), nsh_max_spv = spv.nsh_max ();
 
+  // Heap-allocated work buffers, allocated once for the largest element
+  std::vector<double> jacdet_weights (nqn);
+  std::vector<double> shcv (nsh_max_spv * nqn);   // [idof][inode]
+  std::vector<double> shpp (nsh_max_spp * nqn);   // [jdof][inode]
+  std::vector<octave_idx_type> conn_v (nsh_max_spv);
+  std::vector<octave_idx_type> conn_p (nsh_max_spp);
+
   dim_vector dims (nel * nsh_max_spv * nsh_max_spp, 1);
   Array <octave_idx_type> I (dims, 0);
   octave_idx_type* Iptr = I.fortran_vec ();
@@ -59,6 +66,7 @@ OUTPUT:\n\
   double* Vptr = V.fortran_vec ();
 
   SparseMatrix mat;
+
 
   octave_idx_type counter = 0, iel, inode, idof, jdof, icmp;
 
@@ -75,21 +83,17 @@ OUTPUT:\n\
               msh.weights (inode, iel) * coeff (inode, iel);
           }
 
-        double shcv[nsh_v][nqn];
-        double shpp[nsh_p][nqn];
-        octave_idx_type conn_v[nsh_max_spv];
-        octave_idx_type conn_p[nsh_max_spp];
 
         for (idof = 0; idof < nsh_p; idof++) 
           for (inode = 0; inode < nqn; inode++)
-            shpp[idof][inode] = spp.shape_functions (0, inode, idof, iel);
+            shpp[idof * nqn + inode] = spp.shape_functions (0, inode, idof, iel);
               
         for (jdof = 0; jdof < nsh_v; jdof++) 
           for (inode = 0; inode < nqn; inode++)
-            shcv[jdof][inode] = spv.shape_function_curls (inode, jdof, iel);
+            shcv[jdof * nqn + inode] = spv.shape_function_curls (inode, jdof, iel);
               
-        spp.cache_element_connectivity (iel, (octave_idx_type*)conn_p);
-        spv.cache_element_connectivity (iel, (octave_idx_type*)conn_v);
+        spp.cache_element_connectivity (iel, conn_p.data());
+        spv.cache_element_connectivity (iel, conn_v.data());
 
 
         for (idof = 0; idof < nsh_p; idof++) 
@@ -103,7 +107,7 @@ OUTPUT:\n\
               for (inode = 0; inode < nqn; inode++)
                 if (msh.weights (inode, iel) > 0.0)
                   Vptr[counter] += jacdet_weights[inode] * 
-                    shpp[idof][inode] * shcv[jdof][inode];                    
+                    shpp[idof * nqn + inode] * shcv[jdof * nqn + inode];
               counter++;
             } // end  for idof, for jdof
       } 

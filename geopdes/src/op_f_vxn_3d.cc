@@ -46,13 +46,18 @@ OUTPUT:\n\
   dim_vector          idx (sp.ncomp (), msh.nqn (), msh.nel ());
   NDArray             coeff = args(2).array_value ().reshape (idx);
 
-  const octave_idx_type nel = msh.nel (), ncomp = sp.ncomp (), nqn = msh.nqn ();
+  const octave_idx_type nel = msh.nel (), ncomp = sp.ncomp (), nqn = msh.nqn (), nsh_max = sp.nsh_max ();
 
   ColumnVector mat (sp.ndof (), 0.0);
 
   octave_idx_type iel, inode, idof, icmp;
 
   {
+    // Heap-allocated work buffers, allocated once for the largest element
+    std::vector<double> jacdet_weights (nqn);
+    std::vector<double> shp_x_n (nsh_max * nqn * ncomp);
+    std::vector<octave_idx_type> conn (nsh_max);
+
     double local_contribution;
 
     for (iel=0; iel < nel; iel++) 
@@ -67,31 +72,29 @@ OUTPUT:\n\
                 msh.weights (inode, iel);
             }
 
-          double shp_x_n[nsh][nqn][ncomp];
-          octave_idx_type conn[nsh];
 
 
           for (idof = 0; idof < nsh; idof++) 
             for (inode = 0; inode < nqn; inode++)
               {
-                shp_x_n[idof][inode][0] = 
+                shp_x_n[(idof * nqn + inode) * ncomp + 0] =
                   sp.shape_functions (1, inode, idof, iel)*
                   msh.normal (2, inode, iel) -
                   sp.shape_functions (2, inode, idof, iel)*
                   msh.normal (1, inode, iel);
-                shp_x_n[idof][inode][1] = 
+                shp_x_n[(idof * nqn + inode) * ncomp + 1] =
                   sp.shape_functions (2, inode, idof, iel)*
                   msh.normal (0, inode, iel) -
                   sp.shape_functions (0, inode, idof, iel)*
                   msh.normal (2, inode, iel);
-                shp_x_n[idof][inode][2] = 
+                shp_x_n[(idof * nqn + inode) * ncomp + 2] =
                   sp.shape_functions (0, inode, idof, iel)*
                   msh.normal (1, inode, iel) -
                   sp.shape_functions (1, inode, idof, iel)*
                   msh.normal (0, inode, iel);
               }
 
-          sp.cache_element_connectivity (iel, (octave_idx_type*)conn);
+          sp.cache_element_connectivity (iel, conn.data());
             
 
           for (idof = 0; idof < nsh; idof++) 
@@ -100,7 +103,7 @@ OUTPUT:\n\
                 {
                   double s = 0.0;
                   for (icmp = 0; icmp < ncomp; icmp++)
-                    s += shp_x_n[idof][inode][icmp] * coeff (icmp, inode, iel);
+                    s += shp_x_n[(idof * nqn + inode) * ncomp + icmp] * coeff (icmp, inode, iel);
                   local_contribution = jacdet_weights[inode] * s;
                       
                   mat(conn[idof]-1) += local_contribution;

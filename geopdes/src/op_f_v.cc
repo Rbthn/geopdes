@@ -30,9 +30,10 @@ void op_f_v_worker (const geopdes_mesh &msh, const geopdes_space &sp,
     nqn = msh.nqn (),
     nsh = sp.nsh_max ();
 
-  double shp[nsh][nqn][ncomp];
-  octave_idx_type conn[nsh];
-  double jacdet_weights[nqn];
+  // Heap-allocated work buffers, allocated once for the largest element
+  std::vector<double> jacdet_weights (nqn);
+  std::vector<double> shp (nsh * nqn * ncomp);
+  std::vector<octave_idx_type> conn (nsh);
   
   octave_idx_type iel, inode, idof, icmp;
       
@@ -43,8 +44,8 @@ void op_f_v_worker (const geopdes_mesh &msh, const geopdes_space &sp,
           jacdet_weights[inode] = msh.jacdet (inode, iel) *
             msh.weights (inode, iel);
             
-        sp.cache_element_shape_functions (iel, (double*)shp);
-        sp.cache_element_connectivity (iel, (octave_idx_type*)conn);
+        sp.cache_element_shape_functions (iel, shp.data());
+        sp.cache_element_connectivity (iel, conn.data());
             
         for (idof = 0; idof < nsh; idof++) 
           for (inode = 0; inode < nqn; inode++)
@@ -54,7 +55,7 @@ void op_f_v_worker (const geopdes_mesh &msh, const geopdes_space &sp,
                 NUMBER s = 0.0;
 
                 for (icmp = 0; icmp < ncomp; icmp++)
-                  s += shp[idof][inode][icmp] * coeff (icmp, inode, iel);
+                  s += shp[(idof * nqn + inode) * ncomp + icmp] * coeff (icmp, inode, iel);
 
                 matptr[(conn[idof])-1] += jacdet_weights[inode] * s;
 		  
